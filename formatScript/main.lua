@@ -1,11 +1,8 @@
--- CUSTOMIZABLE SECTION --
+local DiscordBotToken = "YOUR_TOKEN_HERE"
+local GuildID = "YOUR_SERVER_ID"
+local NameBypassRoleID = "YOUR_NAMEBYPASS_ROLE"
 
-local DiscordBotToken = "TOKEN_HERE"
-local GuildID = "SERVER_ID"
-local RequiredRoleID = "WHITELIST_ROLES"
-local NameBypassRoleID = "NAMEBYPASS_ROLES"
-
--- DO NOT EDIT THIS --
+-- DO NOT EDIT, UNLESS YOU KNOW WHAT YOU'RE DOING --
 
 function GetDiscordUser(source)
     for _, id in ipairs(GetPlayerIdentifiers(source)) do
@@ -16,7 +13,7 @@ function GetDiscordUser(source)
     return nil
 end
 
-function IsPlayerWhitelisted(discordID, callback)
+function GetDiscordMember(discordID, callback)
     local url = ("https://discord.com/api/guilds/%s/members/%s"):format(GuildID, discordID)
     local headers = {
         ["Authorization"] = "Bot " .. DiscordBotToken,
@@ -26,21 +23,9 @@ function IsPlayerWhitelisted(discordID, callback)
     PerformHttpRequest(url, function(errorCode, resultData, resultHeaders)
         if errorCode == 200 then
             local data = json.decode(resultData)
-            local isWhitelisted = false
-            local hasNameBypassRole = false
-
-            for _, role in pairs(data.roles) do
-                if role == RequiredRoleID then
-                    isWhitelisted = true
-                end
-                if role == NameBypassRoleID then
-                    hasNameBypassRole = true
-                end
-            end
-
-            callback(isWhitelisted, hasNameBypassRole)
+            callback(true, data)
         else
-            callback(false, false)
+            callback(false, nil)
         end
     end, "GET", "", headers)
 end
@@ -56,10 +41,18 @@ AddEventHandler("playerConnecting", function(playerName, setKickReason, deferral
         return
     end
 
-    IsPlayerWhitelisted(discordID, function(whitelisted, hasNameBypassRole)
-        if not whitelisted then
-            deferrals.done("Failed to connect to the server due to you not being whitelisted, contact your CoC.")
+    GetDiscordMember(discordID, function(success, data)
+        if not success then
+            deferrals.done("Failed to verify your Discord information. Try again later.")
             return
+        end
+
+        local hasNameBypassRole = false
+        for _, role in pairs(data.roles or {}) do
+            if role == NameBypassRoleID then
+                hasNameBypassRole = true
+                break
+            end
         end
 
         if hasNameBypassRole then
@@ -67,25 +60,11 @@ AddEventHandler("playerConnecting", function(playerName, setKickReason, deferral
             return
         end
 
-        local url = ("https://discord.com/api/guilds/%s/members/%s"):format(GuildID, discordID)
-        local headers = {
-            ["Authorization"] = "Bot " .. DiscordBotToken,
-            ["Content-Type"] = "application/json"
-        }
-
-        PerformHttpRequest(url, function(errorCode, resultData, resultHeaders)
-            if errorCode == 200 then
-                local data = json.decode(resultData)
-                local discordNick = data.nick or GetPlayerName(source)
-
-                if discordNick ~= playerName then
-                    deferrals.done("You've been denied access to the server. Your name format is incorrect.")
-                else
-                    deferrals.done()
-                end
-            else
-                deferrals.done("Failed to verify your Discord information. Try again later.")
-            end
-        end, "GET", "", headers)
+        local discordNick = data.nick or GetPlayerName(source)
+        if discordNick ~= playerName then
+            deferrals.done("You've been denied access to the server because your name format is incorrect.")
+        else
+            deferrals.done()
+        end
     end)
 end)
